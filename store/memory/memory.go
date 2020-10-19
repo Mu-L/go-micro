@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/micro/go-micro/v3/store"
-	"github.com/patrickmn/go-cache"
 	"github.com/pkg/errors"
 )
 
@@ -20,7 +19,7 @@ func NewStore(opts ...store.Option) store.Store {
 			Database: "micro",
 			Table:    "micro",
 		},
-		stores: map[string]*cache.Cache{}, // cache.New(cache.NoExpiration, 5*time.Minute),
+		stores: map[string]*cacheStore{},
 	}
 	for _, o := range opts {
 		o(&s.options)
@@ -32,7 +31,7 @@ type memoryStore struct {
 	sync.RWMutex
 	options store.Options
 
-	stores map[string]*cache.Cache
+	stores map[string]*cacheStore
 }
 
 type storeRecord struct {
@@ -52,14 +51,14 @@ func (m *memoryStore) prefix(database, table string) string {
 	return filepath.Join(database, table)
 }
 
-func (m *memoryStore) getStore(prefix string) *cache.Cache {
+func (m *memoryStore) getStore(prefix string) *cacheStore {
 	m.RLock()
 	store := m.stores[prefix]
 	m.RUnlock()
 	if store == nil {
 		m.Lock()
 		if m.stores[prefix] == nil {
-			m.stores[prefix] = cache.New(cache.NoExpiration, 5*time.Minute)
+			m.stores[prefix] = newCache()
 		}
 		store = m.stores[prefix]
 		m.Unlock()
@@ -131,7 +130,7 @@ func (m *memoryStore) delete(prefix, key string) {
 
 func (m *memoryStore) list(prefix string, limit, offset uint, prefixFilter, suffixFilter string) []string {
 
-	allItems := m.getStore(prefix).Items()
+	allItems := m.getStore(prefix).List()
 
 	allKeys := make([]string, len(allItems))
 
@@ -168,7 +167,7 @@ func (m *memoryStore) Close() error {
 	m.Lock()
 	defer m.Unlock()
 	for _, s := range m.stores {
-		s.Flush()
+		s.Close()
 	}
 	return nil
 }
